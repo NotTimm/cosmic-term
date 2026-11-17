@@ -27,14 +27,17 @@ use cosmic::{
     },
     iced::{
         Color, Element, Length, Padding, Point, Rectangle, Size, Vector,
-        advanced::graphics::text::Raw,
+        advanced::graphics::{geometry::Renderer as _, text::Raw},
         event::Event,
         keyboard::{Event as KeyEvent, Key, Modifiers},
         mouse::{self, Button, Event as MouseEvent, ScrollDelta},
     },
     theme::Theme,
 };
-use cosmic::{iced::core::SmolStr, widget::menu::key_bind::KeyBind};
+use cosmic::{
+    iced::core::SmolStr,
+    widget::{canvas, menu::key_bind::KeyBind},
+};
 use cosmic_text::LayoutGlyph;
 use indexmap::IndexSet;
 use std::{
@@ -507,6 +510,9 @@ where
             );
         }
 
+        // Powerline shapes need paths, so they go in a canvas frame
+        let mut powerline_frame: Option<canvas::Frame> = None;
+
         // Render cell backgrounds that do not match default
         terminal.with_buffer(|buffer| {
             for run in buffer.layout_runs() {
@@ -742,10 +748,28 @@ where
                         view_position + Vector::new(glyph.x, run.line_top),
                         Size::new(glyph.w, buffer.metrics().line_height),
                     );
-                    box_drawing::draw(renderer, c, cell, color, glyph.font_size);
+                    if box_drawing::is_powerline(c) {
+                        // Collected into one frame and drawn once below
+                        let frame = powerline_frame.get_or_insert_with(|| {
+                            canvas::Frame::with_bounds(
+                                renderer,
+                                Rectangle::new(
+                                    view_position,
+                                    Size::new(view_w as f32, view_h as f32),
+                                ),
+                            )
+                        });
+                        box_drawing::draw_powerline(frame, c, cell, color, glyph.font_size);
+                    } else {
+                        box_drawing::draw(renderer, c, cell, color, glyph.font_size);
+                    }
                 }
             }
         });
+
+        if let Some(frame) = powerline_frame {
+            renderer.draw_geometry(frame.into_geometry());
+        }
 
         renderer.fill_raw(Raw {
             buffer: terminal.buffer_weak(),

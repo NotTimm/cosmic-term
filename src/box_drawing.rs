@@ -8,15 +8,124 @@
 //! font size), so boxes drawn with `│` or `█` would show gaps between rows.
 //! This is the same approach Kitty, WezTerm, Alacritty and Ghostty use.
 
-use cosmic::iced::{
-    Background, Border, Color, Point, Rectangle, Size,
-    advanced::renderer::{self, Quad},
-    border::Radius,
+use cosmic::{
+    iced::{
+        Background, Border, Color, Point, Radians, Rectangle, Size, Vector,
+        advanced::renderer::{self, Quad},
+        border::Radius,
+    },
+    widget::canvas::{Frame, LineCap, LineJoin, Path, Stroke, path::arc},
 };
+use std::f32::consts::{FRAC_PI_2, PI};
 
-/// Whether `c` is drawn by [`draw`] rather than by the font.
+/// Whether `c` is drawn by [`draw`] or [`draw_powerline`] rather than by the
+/// font.
 pub fn is_custom(c: char) -> bool {
-    line_arms(c).is_some() || arc_corner(c).is_some() || blocks(c).is_some()
+    line_arms(c).is_some() || arc_corner(c).is_some() || blocks(c).is_some() || is_powerline(c)
+}
+
+/// Powerline separators (U+E0B0..U+E0BF), drawn with [`draw_powerline`].
+///
+/// Prompts like Oh My Posh and Starship put these right next to colored
+/// backgrounds, so they must cover the full cell height or the "pill" and
+/// arrow ends look shorter than the segment they belong to.
+pub fn is_powerline(c: char) -> bool {
+    ('\u{e0b0}'..='\u{e0bf}').contains(&c)
+}
+
+/// Add the shape for powerline character `c` filling `cell` to `frame`.
+pub fn draw_powerline(frame: &mut Frame, c: char, cell: Rectangle, color: Color, font_size: f32) {
+    let g = Grid::new(cell);
+    let (l, r, t, b) = (g.left, g.right, g.top, g.bottom);
+    let mid = (t + b) / 2.0;
+    let p = Point::new;
+    let polygon = |points: &[Point]| {
+        Path::new(|builder| {
+            builder.move_to(points[0]);
+            for &point in &points[1..] {
+                builder.line_to(point);
+            }
+            builder.close();
+        })
+    };
+    let polyline = |points: &[Point]| {
+        Path::new(|builder| {
+            builder.move_to(points[0]);
+            for &point in &points[1..] {
+                builder.line_to(point);
+            }
+        })
+    };
+    // Half of an ellipse spanning the cell height, with its flat side on
+    // `flat_x` and bulging to the right (`dir` = 1) or left (`dir` = -1)
+    let half_ellipse = |flat_x: f32, dir: f32, closed: bool| {
+        let start = if dir > 0.0 { -FRAC_PI_2 } else { FRAC_PI_2 };
+        Path::new(|builder| {
+            builder.ellipse(arc::Elliptical {
+                center: p(flat_x, mid),
+                radii: Vector::new(r - l, (b - t) / 2.0),
+                rotation: Radians(0.0),
+                start_angle: Radians(start),
+                end_angle: Radians(start + PI),
+            });
+            if closed {
+                builder.close();
+            }
+        })
+    };
+
+    let line_width = (font_size / 14.0).round().max(1.0);
+    let stroke = Stroke::default()
+        .with_color(color)
+        .with_width(line_width)
+        .with_line_cap(LineCap::Round)
+        .with_line_join(LineJoin::Round);
+    // Outlines are inset by half the line width so they stay in the cell
+    let i = line_width / 2.0;
+    // Solid shapes overlap the segment they continue by a pixel on their flat
+    // side, so the anti-aliased edge never leaves a seam against the
+    // neighbouring cell's background.
+    let o = 1.0;
+
+    match c {
+        // Solid triangles pointing right and left
+        '\u{e0b0}' => frame.fill(
+            &polygon(&[p(l - o, t), p(l, t), p(r, mid), p(l, b), p(l - o, b)]),
+            color,
+        ),
+        '\u{e0b2}' => frame.fill(
+            &polygon(&[p(r + o, t), p(r, t), p(l, mid), p(r, b), p(r + o, b)]),
+            color,
+        ),
+        // Thin chevrons
+        '\u{e0b1}' => frame.stroke(
+            &polyline(&[p(l, t + i), p(r - i, mid), p(l, b - i)]),
+            stroke,
+        ),
+        '\u{e0b3}' => frame.stroke(
+            &polyline(&[p(r, t + i), p(l + i, mid), p(r, b - i)]),
+            stroke,
+        ),
+        // Solid and outline half circles (the "pill" caps)
+        '\u{e0b4}' => {
+            frame.fill(&half_ellipse(l, 1.0, true), color);
+            frame.fill_rectangle(p(l - o, t), Size::new(o, b - t), color);
+        }
+        '\u{e0b6}' => {
+            frame.fill(&half_ellipse(r, -1.0, true), color);
+            frame.fill_rectangle(p(r, t), Size::new(o, b - t), color);
+        }
+        '\u{e0b5}' => frame.stroke(&half_ellipse(l, 1.0, false), stroke),
+        '\u{e0b7}' => frame.stroke(&half_ellipse(r, -1.0, false), stroke),
+        // Corner triangles and slanted separators
+        '\u{e0b8}' => frame.fill(&polygon(&[p(l, t), p(r, b), p(l, b)]), color), // lower left
+        '\u{e0ba}' => frame.fill(&polygon(&[p(r, t), p(r, b), p(l, b)]), color), // lower right
+        '\u{e0bc}' => frame.fill(&polygon(&[p(l, t), p(r, t), p(l, b)]), color), // upper left
+        '\u{e0be}' => frame.fill(&polygon(&[p(l, t), p(r, t), p(r, b)]), color), // upper right
+        '\u{e0b9}' | '\u{e0bf}' => frame.stroke(&polyline(&[p(l, t), p(r, b)]), stroke), // \\
+        '\u{e0bb}' | '\u{e0bd}' => frame.stroke(&polyline(&[p(l, b), p(r, t)]), stroke), // /
+        _ => {}
+    }
 }
 
 /// Draw `c` filling `cell` (in screen coordinates). Returns false if `c` is not
@@ -363,7 +472,13 @@ mod tests {
         {
             assert!(is_custom(c), "{c:?} should be drawn by box_drawing");
         }
-        for c in "a═║╔ \u{e0b0}".chars() {
+        for c in "\u{e0b0}\u{e0b4}\u{e0b6}\u{e0bf}".chars() {
+            assert!(
+                is_custom(c) && is_powerline(c),
+                "{c:?} should be a powerline shape"
+            );
+        }
+        for c in "a═║╔ \u{e0a0}\u{e0c0}".chars() {
             assert!(!is_custom(c), "{c:?} should be left to the font");
         }
     }
