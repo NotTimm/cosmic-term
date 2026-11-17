@@ -50,6 +50,7 @@ use config::{
     AppTheme, CONFIG_VERSION, ColorScheme, ColorSchemeId, ColorSchemeKind, Config, Profile,
     ProfileId,
 };
+mod box_drawing;
 mod config;
 mod mouse_reporter;
 

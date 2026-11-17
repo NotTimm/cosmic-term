@@ -46,7 +46,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{Action, Terminal, TerminalScroll, menu::MenuState, terminal::Metadata};
+use crate::{Action, Terminal, TerminalScroll, box_drawing, menu::MenuState, terminal::Metadata};
 
 const AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -720,6 +720,30 @@ where
                     bg_rect.update(glyph, renderer, state.is_focused);
                 }
                 bg_rect.fill(renderer, state.is_focused);
+
+                // Box-drawing and block characters are drawn as shapes so they
+                // join up across the full cell height. Done after backgrounds
+                // so they are not painted over.
+                for glyph in run.glyphs {
+                    let Some(c) = run
+                        .text
+                        .get(glyph.start..glyph.end)
+                        .and_then(|t| t.chars().next())
+                    else {
+                        continue;
+                    };
+                    if !box_drawing::is_custom(c) {
+                        continue;
+                    }
+                    let fg = metadata_set[glyph.metadata].fg;
+                    let color =
+                        Color::from_rgba8(fg.r(), fg.g(), fg.b(), f32::from(fg.a()) / 255.0);
+                    let cell = Rectangle::new(
+                        view_position + Vector::new(glyph.x, run.line_top),
+                        Size::new(glyph.w, buffer.metrics().line_height),
+                    );
+                    box_drawing::draw(renderer, c, cell, color, glyph.font_size);
+                }
             }
         });
 

@@ -24,6 +24,8 @@ use cosmic_text::{
     Attrs, AttrsList, Buffer, BufferLine, CacheKeyFlags, Family, LineEnding, Shaping, Weight, Wrap,
 };
 use indexmap::IndexSet;
+
+use crate::box_drawing;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -249,16 +251,19 @@ impl TerminalPaneGrid {
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Metadata {
     pub bg: cosmic_text::Color,
+    /// Text color, used for characters drawn by `box_drawing`
+    pub fg: cosmic_text::Color,
     pub underline_color: cosmic_text::Color,
     pub flags: Flags,
 }
 
 impl Metadata {
-    fn new(bg: cosmic_text::Color, underline_color: cosmic_text::Color) -> Self {
+    fn new(bg: cosmic_text::Color, fg: cosmic_text::Color) -> Self {
         let flags = Flags::empty();
         Self {
             bg,
-            underline_color,
+            fg,
+            underline_color: fg,
             flags,
         }
     }
@@ -949,8 +954,12 @@ impl Terminal {
                         mem::swap(&mut fg, &mut bg);
                     }
 
-                    // Convert foreground to linear
-                    attrs = attrs.color(fg);
+                    if box_drawing::is_custom(indexed.cell.c) {
+                        // Drawn as shapes by terminal_box; hide the font's glyph
+                        attrs = attrs.color(cosmic_text::Color::rgba(0, 0, 0, 0));
+                    } else {
+                        attrs = attrs.color(fg);
+                    }
 
                     let underline_color = indexed
                         .cell
