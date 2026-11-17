@@ -41,7 +41,7 @@ default-features = false
 
 [dependencies.cosmic-text]
 version = "0.19"
-features = ["monospace_fallback", "shape-run-cache"]
+features = ["monospace_fallback", "monospace_cells", "shape-run-cache"]
 
 [dependencies.libcosmic]
 git = "https://github.com/pop-os/libcosmic.git"
@@ -84,3 +84,9 @@ debug = true
 # cosmic-theme = { git = "https://github.com/pop-os/libcosmic//", branch = "theme-v2" }
 # iced_futures = { git = "https://github.com/pop-os/libcosmic//", branch = "theme-v2" }
 # iced_winit = { git = "https://github.com/pop-os/libcosmic//", branch = "theme-v2" }
+
+# Fork of cosmic-text with the `monospace_cells` feature, which snaps every
+# glyph to the terminal grid so non-monospaced fonts can be used.
+# To hack on it locally instead, use: cosmic-text = { path = "../cosmic-text" }
+[patch.crates-io]
+cosmic-text = { git = "https://github.com/NotTimm/cosmic-text", branch = "claude/inspiring-mccarthy-js0c1v" }

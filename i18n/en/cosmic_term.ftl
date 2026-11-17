@@ -54,6 +54,8 @@ default-font-weight = Normal font weight
 default-dim-font-weight = Dim font weight
 default-bold-font-weight = Bold font weight
 use-bright-bold = Make bold text brighter
+show-all-fonts = Show fonts that are not monospaced
+show-all-fonts-description = Allows fonts like Nerd Font and Nerd Font Propo variants. Characters are fitted to the terminal grid.
 
 ### Splits
 splits = Splits

@@ -124,6 +124,45 @@ fn as_dim(mut color: Color) -> Color {
 
 pub static WINDOW_BG_COLOR: AtomicU32 = AtomicU32::new(0xFF000000);
 
+/// Work out how wide one terminal cell is for the current font, and tell the
+/// buffer to snap glyphs to that width.
+///
+/// For monospaced fonts this is just the width of a space. When the user has
+/// picked a font that is not monospaced (e.g. a "Nerd Font Propo" variant),
+/// the widest printable ASCII character is used instead so letters never
+/// overlap; cosmic-text then centers narrower glyphs in their cell.
+fn measure_cell_width(
+    buffer: &mut Buffer,
+    font_system: &mut cosmic_text::FontSystem,
+    attrs: &Attrs,
+) -> f32 {
+    // Measure natural glyph widths, without snapping to an old cell width
+    buffer.set_monospace_width(None);
+
+    buffer.set_text(" ", attrs, Shaping::Advanced, None);
+    let space_w = buffer
+        .line_layout(font_system, 0)
+        .and_then(|layout| layout.first().map(|line| line.w))
+        .unwrap_or(0.0);
+
+    // Separate characters with spaces so programming ligatures do not form
+    let sample: String = ('!'..='~').flat_map(|c| [c, ' ']).collect();
+    buffer.set_text(&sample, attrs, Shaping::Advanced, None);
+    let max_glyph_w = buffer
+        .line_layout(font_system, 0)
+        .and_then(|layout| layout.first())
+        .map(|line| {
+            line.glyphs
+                .iter()
+                .fold(0.0f32, |max, glyph| max.max(glyph.w))
+        })
+        .unwrap_or(0.0);
+
+    let w = space_w.max(max_glyph_w);
+    buffer.set_monospace_width(Some(w));
+    w
+}
+
 fn convert_color(colors: &Colors, color: Color) -> cosmic_text::Color {
     let rgb = match color {
         Color::Named(named_color) => match colors[named_color] {
@@ -307,11 +346,7 @@ impl Terminal {
             let font_system = font_system.raw();
             buffer.set_wrap(Wrap::None);
 
-            // Use size of space to determine cell size
-            buffer.set_text(" ", &default_attrs, Shaping::Advanced, None);
-            let layout = buffer.line_layout(font_system, 0).unwrap();
-            let w = layout[0].w;
-            buffer.set_monospace_width(Some(w));
+            let w = measure_cell_width(&mut buffer, font_system, &default_attrs);
             (w, metrics.line_height)
         };
 
@@ -742,11 +777,7 @@ impl Terminal {
             self.with_buffer_mut(|buffer| {
                 buffer.set_wrap(Wrap::None);
 
-                // Use size of space to determine cell size
-                buffer.set_text(" ", &default_attrs, Shaping::Advanced, None);
-                let layout = buffer.line_layout(font_system.raw(), 0).unwrap();
-                let w = layout[0].w;
-                buffer.set_monospace_width(Some(w));
+                let w = measure_cell_width(buffer, font_system.raw(), &default_attrs);
                 (w, buffer.metrics().line_height)
             })
         };

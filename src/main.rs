@@ -455,6 +455,7 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     UpdateDefaultProfile((bool, ProfileId)),
     UseBrightBold(bool),
+    ShowAllFonts(bool),
     WindowClose,
     WindowNew,
     WindowFocused,
@@ -1449,6 +1450,11 @@ impl App {
         let advanced_font_settings = || {
             let section = widget::settings::section()
                 .add(
+                    widget::settings::item::builder(fl!("show-all-fonts"))
+                        .description(fl!("show-all-fonts-description"))
+                        .toggler(self.config.show_all_fonts, Message::ShowAllFonts),
+                )
+                .add(
                     widget::settings::item::builder(fl!("default-font-stretch")).control(
                         widget::dropdown(
                             &self.curr_font_stretch_names,
@@ -1736,28 +1742,7 @@ impl Application for App {
 
         let app_themes = vec![fl!("match-desktop"), fl!("dark"), fl!("light")];
 
-        let font_name_faces_map = {
-            let mut font_name_faces_map = BTreeMap::<_, Vec<_>>::new();
-            let mut font_system = font_system().write().unwrap();
-            //TODO: do not repeat, used in Tab::new
-            for face in font_system.raw().db().faces() {
-                // only monospace fonts and weights that match named constants.
-                let weight = face.weight.0;
-                if face.monospaced && { 1..9 }.contains(&{ weight / 100 }) && weight % 100 == 0 {
-                    //TODO: get localized name if possible
-                    let font_name = face
-                        .families
-                        .first()
-                        .map_or_else(|| face.post_script_name.to_string(), |x| x.0.to_string());
-                    font_name_faces_map
-                        .entry(font_name)
-                        .or_default()
-                        .push(face.clone());
-                }
-            }
-
-            font_name_faces_map
-        };
+        let font_name_faces_map = build_font_name_faces_map(flags.config.show_all_fonts);
 
         if font_name_faces_map.is_empty() {
             log::error!(
@@ -2791,6 +2776,19 @@ impl Application for App {
                     return self.update_config();
                 }
             }
+            Message::ShowAllFonts(show_all_fonts) => {
+                if show_all_fonts != self.config.show_all_fonts {
+                    config_set!(show_all_fonts, show_all_fonts);
+                    let font_name_faces_map = build_font_name_faces_map(show_all_fonts);
+                    if !font_name_faces_map.is_empty() {
+                        self.font_names = font_name_faces_map.keys().cloned().collect();
+                        self.font_name_faces_map = font_name_faces_map;
+                        // Falls back to the first font if the current one was hidden
+                        self.set_curr_font_weights_and_stretches();
+                    }
+                    return self.update_config();
+                }
+            }
             Message::ShowAdvancedFontSettings(show) => {
                 self.show_advanced_font_settings = show;
             }
@@ -3687,4 +3685,33 @@ mod tests {
             color.alpha
         );
     }
+}
+
+/// Group the system's font faces by family name for the font picker.
+///
+/// Only faces with a weight that matches a named constant (100..=900) are
+/// included. Unless `show_all_fonts` is set, fonts that are not marked as
+/// monospaced are skipped.
+fn build_font_name_faces_map(show_all_fonts: bool) -> BTreeMap<String, Vec<FaceInfo>> {
+    let mut font_name_faces_map = BTreeMap::<_, Vec<_>>::new();
+    let mut font_system = font_system().write().unwrap();
+    //TODO: do not repeat, used in Tab::new
+    for face in font_system.raw().db().faces() {
+        let weight = face.weight.0;
+        if (show_all_fonts || face.monospaced)
+            && { 1..9 }.contains(&{ weight / 100 })
+            && weight % 100 == 0
+        {
+            //TODO: get localized name if possible
+            let font_name = face
+                .families
+                .first()
+                .map_or_else(|| face.post_script_name.to_string(), |x| x.0.to_string());
+            font_name_faces_map
+                .entry(font_name)
+                .or_default()
+                .push(face.clone());
+        }
+    }
+    font_name_faces_map
 }

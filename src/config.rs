@@ -241,6 +241,9 @@ pub struct Config {
     pub default_profile: Option<ProfileId>,
     #[serde(default)]
     pub shortcuts_custom: Shortcuts,
+    /// List fonts that are not marked as monospaced in the font picker
+    #[serde(default)]
+    pub show_all_fonts: bool,
 }
 
 impl Default for Config {
@@ -267,6 +270,7 @@ impl Default for Config {
             use_bright_bold: false,
             default_profile: None,
             shortcuts_custom: Shortcuts::default(),
+            show_all_fonts: false,
         }
     }
 }
